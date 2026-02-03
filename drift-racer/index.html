@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Drift Racer – Real Physics</title>
+<style>
+body { margin:0; background:#111; overflow:hidden; }
+canvas { display:block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+canvas.width = innerWidth;
+canvas.height = innerHeight;
+addEventListener("resize",()=>{canvas.width=innerWidth;canvas.height=innerHeight});
+
+const keys = {};
+addEventListener("keydown",e=>keys[e.key]=true);
+addEventListener("keyup",e=>keys[e.key]=false);
+
+//////////////////////////////////////////////////
+// TRACK
+//////////////////////////////////////////////////
+const TRACK = {
+  radius: 900,
+  width: 140
+};
+
+//////////////////////////////////////////////////
+// VECTOR UTILS
+//////////////////////////////////////////////////
+function dot(a,b){ return a.x*b.x + a.y*b.y; }
+function mag(v){ return Math.hypot(v.x,v.y); }
+function normalize(v){
+  const m = mag(v) || 1;
+  return {x:v.x/m, y:v.y/m};
+}
+function reflect(v,n){
+  const d = dot(v,n);
+  return {
+    x: v.x - 2*d*n.x,
+    y: v.y - 2*d*n.y
+  };
+}
+
+//////////////////////////////////////////////////
+// CAR
+//////////////////////////////////////////////////
+class Car {
+  constructor(x,y,color="red") {
+    this.pos={x,y};
+    this.vel={x:0,y:0};
+    this.angle=0;
+    this.color=color;
+
+    // tuning
+    this.engineForce = 0.18;
+    this.maxSpeed = 8;
+    this.turnBase = 0.06;
+    this.grip = 0.88;
+    this.bounce = 0.6;
+  }
+
+  update() {
+    let throttle=0, steer=0;
+
+    if (keys.ArrowUp) throttle=1;
+    if (keys.ArrowDown) throttle=-0.7;
+    if (keys.ArrowLeft) steer=-1;
+    if (keys.ArrowRight) steer=1;
+
+    // speed
+    const speed = mag(this.vel);
+
+    // steering tightens at low speed
+    const steerStrength =
+      this.turnBase * Math.max(0.25, 1 - speed / this.maxSpeed);
+
+    this.angle += steer * steerStrength;
+
+    // engine force
+    const fx = Math.cos(this.angle);
+    const fy = Math.sin(this.angle);
+
+    this.vel.x += fx * throttle * this.engineForce;
+    this.vel.y += fy * throttle * this.engineForce;
+
+    // lateral grip (drift)
+    const forward = {x:fx,y:fy};
+    const forwardVel = dot(this.vel, forward);
+    const lateral = {
+      x: this.vel.x - forward.x * forwardVel,
+      y: this.vel.y - forward.y * forwardVel
+    };
+
+    this.vel.x = forward.x * forwardVel + lateral.x * this.grip;
+    this.vel.y = forward.y * forwardVel + lateral.y * this.grip;
+
+    // clamp speed
+    const vmag = mag(this.vel);
+    if (vmag > this.maxSpeed) {
+      const n = normalize(this.vel);
+      this.vel.x = n.x * this.maxSpeed;
+      this.vel.y = n.y * this.maxSpeed;
+    }
+
+    // move
+    this.pos.x += this.vel.x;
+    this.pos.y += this.vel.y;
+
+    // track collision with bounce
+    const d = mag(this.pos);
+    const inner = TRACK.radius - TRACK.width/2;
+    const outer = TRACK.radius + TRACK.width/2;
+
+    if (d < inner || d > outer) {
+      const normal = normalize(this.pos);
+      this.vel = reflect(this.vel, normal);
+      this.vel.x *= this.bounce;
+      this.vel.y *= this.bounce;
+
+      // push back onto track
+      const clampR = d < inner ? inner : outer;
+      this.pos.x = normal.x * clampR;
+      this.pos.y = normal.y * clampR;
+    }
+  }
+
+  draw() {
+    ctx.save();
+    ctx.translate(this.pos.x,this.pos.y);
+    ctx.rotate(this.angle);
+    ctx.fillStyle=this.color;
+    ctx.fillRect(-14,-7,28,14);
+    ctx.restore();
+  }
+}
+
+//////////////////////////////////////////////////
+// GAME
+//////////////////////////////////////////////////
+const car = new Car(0,-TRACK.radius);
+const cam={x:0,y:0};
+
+function drawTrack() {
+  ctx.strokeStyle="#444";
+  ctx.lineWidth=TRACK.width;
+  ctx.beginPath();
+  ctx.arc(0,0,TRACK.radius,0,Math.PI*2);
+  ctx.stroke();
+}
+
+function loop() {
+  car.update();
+
+  cam.x += (car.pos.x-cam.x)*0.1;
+  cam.y += (car.pos.y-cam.y)*0.1;
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.save();
+  ctx.translate(canvas.width/2-cam.x,canvas.height/2-cam.y);
+
+  drawTrack();
+  car.draw();
+
+  ctx.restore();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
